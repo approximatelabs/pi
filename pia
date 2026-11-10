@@ -1,0 +1,35 @@
+#!/bin/sh
+# pia: pi with Affordance as its agent core.
+#
+# It is pi: the same interface, settings, models, themes, extensions and session list
+# (~/.pi/agent). The agent itself (the loop that calls the model and runs tools, and what the
+# model sees) is an Affordance app, packages/agent/affordance. Every pi option works.
+#
+# Installed layout: this script beside node_modules/ (pi with the affordance agent core) and
+# bin/affordance.
+set -eu
+here=$(cd "$(dirname "$(readlink "$0" 2>/dev/null || echo "$0")")" && pwd)
+if [ -z "${PI_AFFORDANCE_BIN:-}" ] && [ -x "$here/bin/affordance" ]; then
+  export PI_AFFORDANCE_BIN="$here/bin/affordance"
+fi
+# Without --model: if pi's default model is not served right now, use a configured one that is.
+model=""
+case " $* " in
+  *" --model "*) ;;
+  *) model=$(node -e '
+const fs = require("fs"), dir = process.env.PI_CODING_AGENT_DIR || (process.env.HOME + "/.pi/agent");
+const read = f => { try { return JSON.parse(fs.readFileSync(dir + "/" + f, "utf8")); } catch { return {}; } };
+const settings = read("settings.json"), provider = (read("models.json").providers || {})[settings.defaultProvider] || {};
+const ids = (provider.models || []).map(m => m.id);
+if (!provider.baseUrl || !ids.length) process.exit(0);
+let served = [];
+try {
+  const args = ["-s", "-m", "3", provider.baseUrl + "/models"];
+  if (provider.apiKey) args.push("-H", "Authorization: Bearer " + provider.apiKey);
+  served = (JSON.parse(require("child_process").execFileSync("curl", args, {encoding: "utf8"})).data || []).map(m => m.id);
+} catch {}
+if (served.length && !served.includes(settings.defaultModel)) console.log(ids.find(id => served.includes(id)) || "");
+' 2>/dev/null || true) ;;
+esac
+if [ -n "$model" ]; then set -- --model "$model" "$@"; fi
+exec node "$here/node_modules/@earendil-works/pi-coding-agent/dist/cli.js" "$@"
