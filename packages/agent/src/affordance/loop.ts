@@ -9,7 +9,7 @@
 // the conversation under the agent (a branch, a tree jump, a compaction), the app's conversation is
 // replaced with pi's (`reset`); otherwise only what is new is sent.
 import { createHash } from "node:crypto";
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -119,10 +119,23 @@ async function sessionFor(config: AgentLoopConfig): Promise<Session> {
 		} catch {
 			mirror = [];
 		}
-		const host = new Host(wanted, dir, process.cwd());
-		for (let event = await host.next(); event.type !== "ready"; event = await host.next()) {
-			if (event.type === "exit") throw new Error(event.error ?? "affordance exited");
+		// A journal that cannot be continued (another model than it was made with, an app that no
+		// longer replays it) is set aside, and a fresh one is seeded from pi's transcript.
+		let host = new Host(wanted, dir, process.cwd());
+		const started = async (candidate: Host): Promise<string | undefined> => {
+			for (let event = await candidate.next(); event.type !== "ready"; event = await candidate.next()) {
+				if (event.type === "exit") return event.error ?? "affordance exited";
+			}
+			return undefined;
+		};
+		let failure = await started(host);
+		if (failure !== undefined && existsSync(join(dir, "root", "agent.json"))) {
+			renameSync(dir, `${dir}.set-aside-${Date.now()}`);
+			mirror = [];
+			host = new Host(wanted, dir, process.cwd());
+			failure = await started(host);
 		}
+		if (failure !== undefined) throw new Error(failure);
 		session = { host, dir, mirror };
 		sessions.set(id, session);
 	}
