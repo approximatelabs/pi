@@ -308,6 +308,8 @@ export async function runAffordanceLoop(
 	let lastAssistant: AssistantMessage | undefined;
 	const running = new Map<string, { name: string; args: any; started: number; output: string; outcome?: AgentToolResult<any>; isError?: boolean }>();
 	const toolResults: ToolResultMessage[] = [];
+	// Which tool call each machine call (a command) belongs to: the app's trace says, as it starts.
+	const commandOf = new Map<number, string>();
 
 	// The tool calls of the reply being streamed, by their place in it: the block, and its arguments' text so far.
 	const streamed = new Map<number, { block: ToolCall; json: string }>();
@@ -446,11 +448,13 @@ export async function runAffordanceLoop(
 				await append(event.text, event.reasoning === true);
 			} else if (event.type === "trace" && event.record?.t === "generate" && event.record.tag !== "fold") {
 				usage = event.record;
+			} else if (event.type === "trace" && event.record?.t === "call") {
+				commandOf.set(Number(event.record.task), String(event.record.call_id));
 			} else if (event.type === "output" && event.text) {
-				// A command's output as it runs: it belongs to the one command running, if there is one.
-				const commands = [...running].filter(([, call]) => call.name === "bash" && !call.outcome);
-				if (commands.length === 1) {
-					const [id, call] = commands[0];
+				// A command's output as it runs, under the tool call that started the command.
+				const id = commandOf.get(event.task ?? -1);
+				const call = id === undefined ? undefined : running.get(id);
+				if (id !== undefined && call && call.name === "bash" && !call.outcome) {
 					call.output += event.text;
 					await emit({
 						type: "tool_execution_update",
