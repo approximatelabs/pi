@@ -1,0 +1,15 @@
+# The agent core of pi's affordance flavor: the deployment pi runs with `affordance host`, one
+# process a session. The model's address, name and context length come from pi's model selection
+# (--set), its key from the environment. Commands and files are this machine's, in pi's directory.
+root:
+  app: app.tsx
+  model: default
+  max_new: 16384
+model:
+  kind: chat
+  url: http://127.0.0.1:8080/v1
+  model: local
+  context: 8192
+machines:
+  home:
+    kind: local

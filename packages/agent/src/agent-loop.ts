@@ -18,6 +18,7 @@ import {
 	toToolDeclaration,
 	validateToolArguments,
 } from "@earendil-works/pi-ai";
+import { runAffordanceLoop } from "./affordance/loop.ts";
 import { getDefaultStreamFn } from "./stream-fn.ts";
 import type {
 	AgentContext,
@@ -116,6 +117,11 @@ export async function runAgentLoop(
 	signal: AbortSignal | undefined,
 	streamFn: StreamFn,
 ): Promise<AgentMessage[]> {
+	// The affordance flavor: the loop is an Affordance app (./affordance/loop.ts). Set
+	// PI_AGENT_CORE=pi for pi's own loop, below.
+	if (process.env.PI_AGENT_CORE !== "pi") {
+		return runAffordanceLoop(prompts, context, config, emit, signal);
+	}
 	const initialMessages = declareToolChanges(context, prompts);
 	const newMessages: AgentMessage[] = [...initialMessages];
 	const currentContext: AgentContext = {
@@ -141,6 +147,9 @@ export async function runAgentLoopContinue(
 	signal: AbortSignal | undefined,
 	streamFn: StreamFn,
 ): Promise<AgentMessage[]> {
+	if (process.env.PI_AGENT_CORE !== "pi") {
+		return runAffordanceLoop([], context, config, emit, signal);
+	}
 	if (context.messages.length === 0) {
 		throw new Error("Cannot continue: no messages in context");
 	}
