@@ -187,6 +187,10 @@ export async function runAffordanceLoop(
 	const expected = chatMessages(before);
 	const marks = expected.map(fingerprint);
 	const inStep = marks.length === session.mirror.length && marks.every((mark, i) => mark === session.mirror[i]);
+	if (process.env.PI_AFFORDANCE_DEBUG) {
+		const roles = context.messages.map((m) => m.role).join(",");
+		console.error(`pi-affordance: context ${context.messages.length} (${roles}), chat ${expected.length}, mirror ${session.mirror.length}, in step ${inStep}`);
+	}
 	if (!inStep) {
 		host.event("reset", { messages: expected });
 		session.mirror = marks;
