@@ -17,11 +17,14 @@ import {
 	getCurrentSystemPrompt,
 	type ImageContent,
 	type Message,
+	normalizeContext,
+	parseStreamingJson,
 	type TextContent,
+	type ToolCall,
 	type ToolResultMessage,
 } from "@earendil-works/pi-ai";
 import { type AgentEventSink, runToolCall } from "../agent-loop.ts";
-import type { AgentContext, AgentLoopConfig, AgentMessage, AgentTool, AgentToolResult } from "../types.ts";
+import type { AgentContext, AgentLoopConfig, AgentMessage, AgentTool, AgentToolResult, StreamFn } from "../types.ts";
 import { type Binding, Host, type HostEvent } from "./host.ts";
 
 /** pi's built-in tools the app implements itself (affordance/tools.tsx); any other tool is run by pi. */
@@ -142,6 +145,68 @@ async function sessionFor(config: AgentLoopConfig): Promise<Session> {
 	return session;
 }
 
+/** What the agent app sets on a request itself; everything else pi would send is passed along. */
+const APP_OWNED = new Set([
+	"model",
+	"messages",
+	"stream",
+	"stream_options",
+	"tools",
+	"tool_choice",
+	"tool_stream",
+	"max_tokens",
+	"max_completion_tokens",
+	"store",
+	"stop",
+	"prompt_cache_key",
+	"prompt_cache_retention",
+]);
+const requestShapes = new Map<string, Record<string, unknown>>();
+
+/**
+ * What pi sends a server beside the conversation: the thinking level as this server spells it
+ * (`reasoning_effort`, `enable_thinking`, a template argument, ...), the temperature, routing. pi's
+ * model layer knows the spelling for each provider, so it is asked to build a request, which is
+ * stopped before it is sent, and the app sends the same fields with its own calls.
+ */
+async function requestOptions(
+	config: AgentLoopConfig,
+	streamFn: StreamFn,
+	key: string | undefined,
+): Promise<Record<string, unknown>> {
+	if (config.model.api !== "openai-completions") return {};
+	const id = JSON.stringify([config.model.provider, config.model.id, config.model.baseUrl, config.reasoning ?? "off", config.temperature ?? null]);
+	const known = requestShapes.get(id);
+	if (known) return known;
+	const stop = new AbortController();
+	let payload: Record<string, unknown> | undefined;
+	try {
+		const response = await streamFn(
+			config.model,
+			normalizeContext({ messages: [{ role: "user", content: "", timestamp: 0 }] }),
+			{
+				...config,
+				apiKey: key ?? "none",
+				signal: stop.signal,
+				onPayload: (built) => {
+					payload = built as Record<string, unknown>;
+					stop.abort();
+					throw new Error("not sent");
+				},
+			},
+		);
+		await response.result();
+	} catch {
+		// The request was stopped on purpose; without a payload nothing is passed along.
+	}
+	const options: Record<string, unknown> = {};
+	for (const [name, value] of Object.entries(payload ?? {})) {
+		if (!APP_OWNED.has(name) && value !== undefined) options[name] = value;
+	}
+	if (payload) requestShapes.set(id, options);
+	return options;
+}
+
 function emptyAssistant(config: AgentLoopConfig): AssistantMessage {
 	return {
 		role: "assistant",
@@ -183,6 +248,7 @@ export async function runAffordanceLoop(
 	config: AgentLoopConfig,
 	emit: AgentEventSink,
 	signal: AbortSignal | undefined,
+	streamFn: StreamFn,
 ): Promise<AgentMessage[]> {
 	const newMessages: AgentMessage[] = [];
 	const tools = context.tools ?? [];
@@ -208,7 +274,10 @@ export async function runAffordanceLoop(
 		host.event("reset", { messages: expected });
 		session.mirror = marks;
 	}
-	const configuration = setup([...before, ...(await config.convertToLlm(prompts))], tools);
+	const configuration = {
+		...setup([...before, ...(await config.convertToLlm(prompts))], tools),
+		sampling: await requestOptions(config, streamFn, session.host.binding.key),
+	};
 	const say = (message: AgentMessage, llm: Message[]) => {
 		for (const chat of chatMessages(llm)) {
 			if (chat.role !== "user") continue;
@@ -239,6 +308,9 @@ export async function runAffordanceLoop(
 	let lastAssistant: AssistantMessage | undefined;
 	const running = new Map<string, { name: string; args: any; started: number; output: string; outcome?: AgentToolResult<any>; isError?: boolean }>();
 	const toolResults: ToolResultMessage[] = [];
+
+	// The tool calls of the reply being streamed, by their place in it: the block, and its arguments' text so far.
+	const streamed = new Map<number, { block: ToolCall; json: string }>();
 
 	const begin = async () => {
 		if (!assistant) assistant = emptyAssistant(config);
@@ -285,6 +357,24 @@ export async function runAffordanceLoop(
 			await emit({ type: "message_update", message, assistantMessageEvent: { type: "text_delta", contentIndex: index, delta: text, partial: message } });
 		}
 	};
+	const appendCall = async (piece: { index: number; id?: string; name?: string; arguments?: string }) => {
+		const message = await begin();
+		let call = streamed.get(piece.index);
+		if (!call) {
+			await closeBlock();
+			call = { block: { type: "toolCall", id: piece.id ?? "", name: piece.name ?? "", arguments: {} }, json: "" };
+			streamed.set(piece.index, call);
+			message.content.push(call.block);
+			await emit({ type: "message_update", message, assistantMessageEvent: { type: "toolcall_start", contentIndex: message.content.length - 1, partial: message } });
+		}
+		if (piece.id) call.block.id = piece.id;
+		if (piece.name) call.block.name = piece.name;
+		if (piece.arguments) {
+			call.json += piece.arguments;
+			call.block.arguments = parseStreamingJson(call.json);
+			await emit({ type: "message_update", message, assistantMessageEvent: { type: "toolcall_delta", contentIndex: message.content.indexOf(call.block), delta: piece.arguments, partial: message } });
+		}
+	};
 	const finishAssistant = async (reply: Record<string, any>, failure?: string) => {
 		const message = await begin();
 		if (!message.content.length) {
@@ -292,14 +382,26 @@ export async function runAffordanceLoop(
 			if (reply.text) await append(reply.text, false);
 		}
 		await closeBlock();
-		for (const call of reply.calls ?? []) {
-			message.content.push({ type: "toolCall", id: call.id, name: call.name, arguments: call.args ?? {} });
-			const index = message.content.length - 1;
-			const toolCall = message.content[index];
-			if (toolCall.type !== "toolCall") continue;
-			await emit({ type: "message_update", message, assistantMessageEvent: { type: "toolcall_start", contentIndex: index, partial: message } });
-			await emit({ type: "message_update", message, assistantMessageEvent: { type: "toolcall_end", contentIndex: index, toolCall, partial: message } });
+		// The calls as the app read them. One that streamed is completed in place; a streamed call the
+		// app did not keep (the reply was stopped inside it) is taken out.
+		const calls: Array<Record<string, any>> = reply.calls ?? [];
+		const kept = new Set<ToolCall>();
+		for (const [i, call] of calls.entries()) {
+			let toolCall = streamed.get(i)?.block;
+			if (toolCall) {
+				Object.assign(toolCall, { id: call.id, name: call.name, arguments: call.args ?? {} });
+			} else {
+				toolCall = { type: "toolCall", id: call.id, name: call.name, arguments: call.args ?? {} };
+				message.content.push(toolCall);
+				await emit({ type: "message_update", message, assistantMessageEvent: { type: "toolcall_start", contentIndex: message.content.length - 1, partial: message } });
+			}
+			kept.add(toolCall);
 		}
+		message.content = message.content.filter((block) => block.type !== "toolCall" || kept.has(block));
+		for (const toolCall of kept) {
+			await emit({ type: "message_update", message, assistantMessageEvent: { type: "toolcall_end", contentIndex: message.content.indexOf(toolCall), toolCall, partial: message } });
+		}
+		streamed.clear();
 		if (usage) {
 			const reported = usage.model_meta?.usage ?? {};
 			const cached = reported.prompt_tokens_details?.cached_tokens ?? usage.cached_tokens ?? 0;
@@ -338,7 +440,9 @@ export async function runAffordanceLoop(
 		for (;;) {
 			const event: HostEvent = await host.next();
 			if (event.type === "exit") throw new Error(event.error ?? "affordance exited");
-			if (event.type === "delta" && event.text) {
+			if (event.type === "delta" && event.call) {
+				await appendCall(event.call);
+			} else if (event.type === "delta" && event.text) {
 				await append(event.text, event.reasoning === true);
 			} else if (event.type === "trace" && event.record?.t === "generate" && event.record.tag !== "fold") {
 				usage = event.record;

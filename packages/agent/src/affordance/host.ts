@@ -25,6 +25,8 @@ export interface HostEvent {
 	task?: number;
 	text?: string;
 	reasoning?: boolean;
+	/** More of a tool call the model is writing: its place in the reply, and more of its arguments' JSON text. */
+	call?: { index: number; id?: string; name?: string; arguments?: string };
 	request?: number;
 	ask?: Record<string, any>;
 	value?: Record<string, any> | null;

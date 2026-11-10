@@ -11,16 +11,17 @@ import { useFolding } from "./folding.tsx";
 
 export default function Main() {
   const log = useLog();
-  // What pi sends along with a message: its system prompt, which built-in tools are on, and the
-  // tools it runs itself (extensions, MCP), which are offered to the model here and run by pi.
-  const [setup, setSetup] = useState({system: "", builtin: [], bridged: []}, "setup");
-  const configure = ({ system, builtin, bridged }) => {
-    if (system !== undefined) setSetup({system, builtin: builtin || [], bridged: bridged || []});
+  // What pi sends along with a message: its system prompt, which built-in tools are on, the tools
+  // it runs itself (extensions, MCP), which are offered to the model here and run by pi, and what
+  // it asks of the server for each call (`sampling`: the thinking level, the temperature).
+  const [setup, setSetup] = useState({system: "", builtin: [], bridged: [], sampling: {}}, "setup");
+  const configure = ({ system, builtin, bridged, sampling }) => {
+    if (system !== undefined) setSetup({system, builtin: builtin || [], bridged: bridged || [], sampling: sampling || {}});
   };
   useEvent("user", configure);
   useEvent("setup", configure);
   const folding = useFolding(log);
-  const turn = useFrontend(log, {before: folding.before});
+  const turn = useFrontend(log, {before: folding.before, call: () => ({sampling: setup.sampling || {}})});
   const tools = builtinTools(harness.machine.get("home"), {signal: turn.signal});
   // A tool pi runs: the call goes to pi (the machine `ui`) and its result comes back.
   const bridge = tool => async args => {

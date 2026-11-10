@@ -2,6 +2,7 @@
 // through the machine's shell (so they work the same on this machine, over SSH or in a container).
 // A failure throws, which the model reads as the tool's error.
 import { fileTools } from "@affordance/tools/files.tsx";
+import { displayDiff } from "./diff.tsx";
 
 // One shell word.
 function quote(text) {
@@ -38,7 +39,8 @@ export function builtinTools(machine, options) {
   /** Edit a file by exact text replacement. Each edits[].oldText must match exactly once in the file; all edits are applied together, or none. */
   async function edit({path, edits}: {path: string; edits: {oldText: string; newText: string}[]}) {
     if (!edits || !edits.length) throw new Error("edits is empty");
-    let text = await files.read({path});
+    const before = await files.read({path});
+    let text = before;
     for (let i = 0; i < edits.length; i++) {
       const e = edits[i];
       if (!e.oldText) throw new Error(`edits[${i}].oldText is empty`);
@@ -48,7 +50,8 @@ export function builtinTools(machine, options) {
       text = text.split(e.oldText).join(e.newText);
     }
     await files.write({path, content: text});
-    return `Successfully replaced ${edits.length} block(s) in ${path}.`;
+    // The model reads the confirmation; pi's interface draws the diff beside it.
+    return {result: `Successfully replaced ${edits.length} block(s) in ${path}.`, ...displayDiff(before, text)};
   }
 
   /** Search file contents for a pattern (a regular expression, or literal text with literal). Returns matching lines with file and line number. */

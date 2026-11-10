@@ -120,7 +120,7 @@ export async function runAgentLoop(
 	// The affordance flavor: the loop is an Affordance app (./affordance/loop.ts). Set
 	// PI_AGENT_CORE=pi for pi's own loop, below.
 	if (process.env.PI_AGENT_CORE !== "pi") {
-		return runAffordanceLoop(prompts, context, config, emit, signal);
+		return runAffordanceLoop(prompts, context, config, emit, signal, streamFn ?? getDefaultStreamFn());
 	}
 	const initialMessages = declareToolChanges(context, prompts);
 	const newMessages: AgentMessage[] = [...initialMessages];
@@ -148,7 +148,7 @@ export async function runAgentLoopContinue(
 	streamFn: StreamFn,
 ): Promise<AgentMessage[]> {
 	if (process.env.PI_AGENT_CORE !== "pi") {
-		return runAffordanceLoop([], context, config, emit, signal);
+		return runAffordanceLoop([], context, config, emit, signal, streamFn ?? getDefaultStreamFn());
 	}
 	if (context.messages.length === 0) {
 		throw new Error("Cannot continue: no messages in context");
