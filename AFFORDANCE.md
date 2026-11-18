@@ -10,9 +10,25 @@ Each session's agent is journaled, so stopping pi and starting it again continue
 where it was. The journals are under `~/.pi/agent/affordance/`. More on
 [affordance.rs/showcase/pi](https://affordance.rs/showcase/pi).
 
-## Running it
+## Install
 
-pi needs Node.js 22.19 or newer. Install the `affordance` command, then build pi from this branch:
+pia needs Node.js 22.19 or newer, on macOS or Linux. This installs pi 1.5.1 with this agent core,
+and the `affordance` command, into `~/.local/share/pia`, and puts `pia` in `~/.local/bin`:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/approximatelabs/pi/affordance/install-pia.sh | sh
+```
+
+Then run `pia`. It is pi with every option and setting pi has. For example, with an OpenRouter
+key in `OPENROUTER_API_KEY`:
+
+```sh
+pia --provider openrouter --model qwen/qwen3-32b
+```
+
+`PI_AGENT_CORE=pi pia` runs pi's own agent loop instead. Run the install line again to update.
+
+## Building from this branch
 
 ```sh
 cargo install affordance
@@ -21,13 +37,5 @@ npm install --ignore-scripts
 npm run build
 node packages/coding-agent/dist/cli.js
 ```
-
-Every pi option works. For example, with an OpenRouter key in `OPENROUTER_API_KEY`:
-
-```sh
-node packages/coding-agent/dist/cli.js --provider openrouter --model qwen/qwen3-32b
-```
-
-`PI_AGENT_CORE=pi` runs pi's own agent loop instead.
 
 This branch is kept on pi 1.5.1. It does not follow pi's releases.
