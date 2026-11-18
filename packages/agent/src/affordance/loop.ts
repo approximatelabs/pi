@@ -23,6 +23,7 @@ import {
 	type ToolCall,
 	type ToolResultMessage,
 } from "@earendil-works/pi-ai";
+import { getEnvApiKey } from "@earendil-works/pi-ai/compat";
 import { type AgentEventSink, runToolCall } from "../agent-loop.ts";
 import type { AgentContext, AgentLoopConfig, AgentMessage, AgentTool, AgentToolResult, StreamFn } from "../types.ts";
 import { type Binding, Host, type HostEvent } from "./host.ts";
@@ -104,7 +105,12 @@ function binding(config: AgentLoopConfig, key: string | undefined): Binding {
 }
 
 async function sessionFor(config: AgentLoopConfig): Promise<Session> {
-	const key = config.apiKey ?? (await config.getApiKey?.(config.model.provider));
+	// The key as pi's own requests find it: given, from pi's settings, or from the provider's
+	// environment variable (OPENROUTER_API_KEY and the like).
+	const key =
+		config.apiKey ??
+		(await config.getApiKey?.(config.model.provider)) ??
+		getEnvApiKey(config.model.provider as Parameters<typeof getEnvApiKey>[0]);
 	const wanted = binding(config, key);
 	const id = config.sessionId ?? "";
 	let session = sessions.get(id);
