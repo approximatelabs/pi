@@ -1,3 +1,5 @@
+> **This is Approximate Labs' fork of pi 1.5.1, where the agent core is an Affordance app. See [AFFORDANCE.md](AFFORDANCE.md).** The rest of this README is upstream's.
+
 <p align="center">
   <a href="https://pi.dev">
     <img alt="pi logo" src="https://pi.dev/logo-auto.svg" width="128">
