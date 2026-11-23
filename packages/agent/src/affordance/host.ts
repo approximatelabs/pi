@@ -62,7 +62,7 @@ export class Host {
 		const bin = process.env.PI_AFFORDANCE_BIN ?? "affordance";
 		mkdirSync(dir, { recursive: true });
 		const args = ["host", deployment(), "--dir", dir];
-		if (existsSync(join(dir, "root", "agent.json"))) args.push("--resume");
+		if (existsSync(join(dir, "root", "agent.json"))) args.push("--restore");
 		args.push(
 			"--set",
 			`model.url=${binding.url}`,
