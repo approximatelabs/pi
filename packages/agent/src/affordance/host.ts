@@ -168,10 +168,9 @@ export class Host {
 		this.send({ type: "answer", request, value });
 	}
 
-	/** Stop the process; the journal keeps the session. */
+	/** Stop the process: the end of its input closes the run, and the journal keeps the session. */
 	close(): void {
 		if (this.exited) return;
-		this.send({ type: "shutdown" });
 		this.child.stdin?.end();
 	}
 
