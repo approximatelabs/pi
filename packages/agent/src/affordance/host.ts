@@ -71,7 +71,7 @@ export class Host {
 			"--set",
 			`model.context=${binding.context}`,
 			"--set",
-			`root.max_new=${binding.maxNew}`,
+			`instances[0].max_new=${binding.maxNew}`,
 		);
 		const env = { ...process.env };
 		if (binding.key) {
