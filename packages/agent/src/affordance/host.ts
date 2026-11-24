@@ -62,7 +62,7 @@ export class Host {
 		const bin = process.env.PI_AFFORDANCE_BIN ?? "affordance";
 		mkdirSync(dir, { recursive: true });
 		const args = ["host", deployment(), "--dir", dir];
-		if (existsSync(join(dir, "root", "agent.json"))) args.push("--resume");
+		if (existsSync(join(dir, "run.json"))) args.push("--restore");
 		args.push(
 			"--set",
 			`model.url=${binding.url}`,
@@ -71,7 +71,7 @@ export class Host {
 			"--set",
 			`model.context=${binding.context}`,
 			"--set",
-			`root.max_new=${binding.maxNew}`,
+			`instances[0].max_new=${binding.maxNew}`,
 		);
 		const env = { ...process.env };
 		if (binding.key) {
@@ -168,10 +168,9 @@ export class Host {
 		this.send({ type: "answer", request, value });
 	}
 
-	/** Stop the process; the journal keeps the session. */
+	/** Stop the process: the end of its input closes the run, and the journal keeps the session. */
 	close(): void {
 		if (this.exited) return;
-		this.send({ type: "shutdown" });
 		this.child.stdin?.end();
 	}
 
