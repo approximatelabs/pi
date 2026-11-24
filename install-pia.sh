@@ -40,7 +40,7 @@ cat > "$home/package.json" <<'JSON'
   "dependencies": {
     "@earendil-works/pi-coding-agent": "1.5.1",
     "@earendil-works/pi-agent-core": "file:./pi-agent-core.tgz",
-    "affordance-rs": "0.1.0"
+    "affordance-rs": "0.2.0"
   },
   "overrides": {
     "@earendil-works/pi-agent-core": "$@earendil-works/pi-agent-core"
